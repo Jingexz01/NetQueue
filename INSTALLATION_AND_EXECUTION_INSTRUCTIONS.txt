@@ -1,0 +1,216 @@
+NETQUEUE
+INSTALLATION AND EXECUTION INSTRUCTIONS
+========================================
+
+1. PREREQUISITES
+----------------
+
+Install the following software before building:
+
+* Java Development Kit (JDK) 25 or a newer JDK that can compile with
+  --release 25.
+* Apache Maven 3.9 or newer.
+* Windows with a graphical desktop session.
+* Internet access for Maven's first dependency download.
+
+Verify Java and Maven from PowerShell:
+
+  java -version
+  javac -version
+  mvn -version
+
+The reported Java version must be compatible with Java release 25. If Maven
+uses a different Java installation than java.exe, correct JAVA_HOME and reopen
+PowerShell before continuing.
+
+
+2. PROJECT INSTALLATION
+-----------------------
+
+Open PowerShell and change to the project directory:
+
+  Set-Location "C:\Users\Timotea\Documents\papers\Code"
+
+Confirm that the project files are present:
+
+  Get-ChildItem
+
+The project should contain pom.xml and the src directory. Maven automatically
+downloads the FlatLaf 3.6.1 dependency declared in pom.xml. Do not manually
+download the dependency.
+
+The target directory contains generated build output. Maven can recreate it
+when the project is rebuilt.
+
+
+3. OPTIONAL WEB TOKEN SETUP
+---------------------------
+
+The local queue and station-management features work without a web token.
+Set NETQUEUE_PUSH_TOKEN only when reservation and web synchronization features
+are required.
+
+For the current PowerShell window:
+
+  $env:NETQUEUE_PUSH_TOKEN = "your-token-here"
+
+The token enables:
+
+* Reservation loading.
+* Reservation status updates.
+* Reservation deletion.
+* Station and queue snapshot publication.
+
+Do not commit the token to source control or place it in a tracked file.
+
+
+4. CLEAN COMPILATION
+--------------------
+
+Run a clean build from the project directory:
+
+  mvn clean compile
+
+This removes generated output under target and recompiles the main sources.
+The first run may take longer while Maven downloads plugins and FlatLaf.
+
+Successful compilation produces class files under:
+
+  target\classes
+
+
+5. RUN AUTOMATED TESTS
+----------------------
+
+Run the configured test phase:
+
+  mvn test
+
+The Maven configuration executes QueueModelTest during the test phase. The
+test program validates:
+
+* DynamicArray
+* LinkedQueue
+* Stack
+* HashTable
+* BinarySearchTree
+* Graph algorithms
+
+The expected console result includes a line similar to:
+
+  QueueModelTest passed: <number> checks
+
+To run only the standalone test main class:
+
+  mvn exec:java -Dexec.mainClass=QueueModelTest -Dexec.classpathScope=test
+
+
+6. LAUNCH THE DESKTOP APPLICATION
+----------------------------------
+
+From the project directory, run:
+
+  mvn exec:java
+
+The application opens a window titled:
+
+  NetQueue | Control Center
+
+The window contains:
+
+* New Customer form.
+* Waiting queue.
+* VIP and Standard station zones.
+* Station node map.
+* System and daily statistics.
+* Reservations and Logs actions.
+
+Keep the PowerShell window open while the application is running. Close the
+Swing window to end the application.
+
+
+7. WEB-ENABLED EXECUTION
+-------------------------
+
+Set the token in the same PowerShell window used to launch Maven:
+
+  $env:NETQUEUE_PUSH_TOKEN = "your-token-here"
+  mvn exec:java
+
+The application sends web requests to:
+
+  https://netqueue.jingexz01.space
+
+If the token is missing, the application still starts. It displays that web
+synchronization is disabled and reservations are unavailable.
+
+
+8. DIRECT JAVA EXECUTION NOTE
+-----------------------------
+
+Maven is the recommended launcher because it supplies the FlatLaf dependency.
+Do not run only:
+
+  java NetQueue
+
+unless the compiled classes and the FlatLaf JAR are both on the Java
+classpath. For a reliable Windows launch, use:
+
+  mvn exec:java
+
+
+9. COMMON SETUP PROBLEMS
+------------------------
+
+"release version 25 not supported":
+
+* Install JDK 25 or newer.
+* Check java -version and mvn -version.
+* Set JAVA_HOME to the JDK installation.
+* Reopen PowerShell after changing JAVA_HOME.
+
+"mvn is not recognized":
+
+* Install Apache Maven.
+* Add Maven's bin directory to PATH.
+* Reopen PowerShell after changing PATH.
+
+"Could not resolve dependency":
+
+* Confirm internet access.
+* Retry mvn clean compile.
+* Check whether a proxy or firewall blocks Maven Central.
+
+The window does not appear:
+
+* Run from a normal Windows desktop session.
+* Do not use a headless terminal or server session.
+* Check the Maven console for a Java exception.
+
+Reservations are unavailable:
+
+* Confirm NETQUEUE_PUSH_TOKEN is set in the same PowerShell session.
+* Check network connectivity.
+* Verify that the remote service is available.
+
+
+10. RECOMMENDED FIRST-RUN SEQUENCE
+-----------------------------------
+
+For a local installation:
+
+  Set-Location "C:\Users\Timotea\Documents\papers\Code"
+  java -version
+  mvn -version
+  mvn clean compile
+  mvn test
+  mvn exec:java
+
+For web-enabled execution:
+
+  Set-Location "C:\Users\Timotea\Documents\papers\Code"
+  $env:NETQUEUE_PUSH_TOKEN = "your-token-here"
+  mvn clean compile
+  mvn test
+  mvn exec:java
+

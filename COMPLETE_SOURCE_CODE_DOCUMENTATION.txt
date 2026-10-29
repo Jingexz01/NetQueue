@@ -1,0 +1,487 @@
+NETQUEUE
+COMPLETE JAVA SOURCE CODE DOCUMENTATION
+=======================================
+
+DOCUMENT SCOPE
+--------------
+
+This document describes:
+
+  src/main/java/QueueModel.java
+  src/main/java/NetQueue.java
+  src/test/java/QueueModelTest.java
+  pom.xml
+
+NetQueue is a Java Swing desktop application for managing customers waiting for
+VIP and Standard computer stations. It includes custom data structures,
+station allocation, countdown sessions, undo support, graph algorithms,
+reservation integration, activity logging, system statistics, and optional web
+synchronization.
+
+
+1. TECHNOLOGY AND PROJECT CONFIGURATION
+----------------------------------------
+
+* Java release 25.
+* Apache Maven build.
+* Java Swing and AWT for the desktop interface.
+* FlatLaf 3.6.1 for the dark user interface theme.
+* java.net.http.HttpClient for asynchronous HTTP requests.
+* java.time for reservation and session time calculations.
+* ManagementFactory and OperatingSystemMXBean for system metrics.
+
+The project has no Java package declarations, so classes compile into the
+default package.
+
+The pom.xml defines:
+
+* groupId: com.netqueue
+* artifactId: netqueue
+* version: 1.0-SNAPSHOT
+* maven-compiler-plugin 3.14.0
+* exec-maven-plugin 3.5.0
+* maven-surefire-plugin 3.5.2
+* FlatLaf dependency com.formdev:flatlaf:3.6.1
+
+Installation and execution instructions are maintained separately in:
+
+  INSTALLATION_AND_EXECUTION_INSTRUCTIONS.txt
+
+
+2. QueueModel.java
+------------------
+
+QueueModel is a final, non-instantiable container for the domain record and
+custom generic data structures used by NetQueue.
+
+
+2.1 Customer
+------------
+
+Customer is a record with:
+
+  name, type, durationSeconds
+
+Customer(String name, String type) supplies a default duration of 3,600
+seconds. The full constructor:
+
+* Rejects null, empty, and whitespace-only names.
+* Trims the name.
+* Preserves only the exact type "VIP"; all other types become "Standard".
+* Requires duration from 60 seconds through 86,400 seconds.
+
+Invalid input throws IllegalArgumentException.
+
+
+2.2 DynamicArray<T>
+-------------------
+
+DynamicArray is a resizable generic array. It starts with capacity four and
+doubles its backing array when required.
+
+Public methods:
+
+* add(T value): appends a value.
+* get(int index): returns an indexed value.
+* remove(int index): removes and returns a value, shifting later values.
+* size(): returns the logical element count.
+* isEmpty(): reports whether the array has no elements.
+
+Invalid indexes throw IndexOutOfBoundsException. Appending is amortized O(1),
+indexed access is O(1), and removal is O(n).
+
+
+2.3 LinkedQueue<T>
+------------------
+
+LinkedQueue is a FIFO linked-node queue with head and tail references.
+
+Public methods:
+
+* enqueue(T value): adds at the tail.
+* dequeue(): removes and returns the head.
+* peek(): returns the head without removing it.
+* size(): returns the count.
+* isEmpty(): reports whether the queue is empty.
+* snapshot(): copies FIFO order into a DynamicArray.
+
+dequeue and peek throw NoSuchElementException when empty. Enqueue, dequeue,
+peek, size, and isEmpty are O(1); snapshot is O(n).
+
+
+2.4 Stack<T>
+------------
+
+Stack is a LIFO linked-node stack.
+
+Public methods:
+
+* push(T value)
+* pop()
+* isEmpty()
+* size()
+
+pop throws NoSuchElementException when empty. All operations are O(1).
+NetQueue uses this structure for allocation history and Undo.
+
+
+2.5 HashTable<K,V>
+------------------
+
+HashTable uses separate chaining. Its default capacity is 16 and its load
+factor threshold is 0.75. Requested initial capacities are rounded up to a
+power of two.
+
+Public methods:
+
+* HashTable()
+* HashTable(int initialCapacity)
+* put(K key, V value)
+* get(K key)
+* containsKey(K key)
+* remove(K key)
+* size()
+* isEmpty()
+* loadFactor()
+* capacity()
+
+Null keys are rejected by put and return null or false from lookup methods.
+Entries are rehashed when the projected load factor exceeds 0.75. Expected
+lookup, insertion, and removal are O(1); collisions and resizing can require
+O(n).
+
+
+2.6 BinarySearchTree<T>
+-----------------------
+
+BinarySearchTree requires T to implement Comparable<T>. It stores unique
+values and is not self-balancing.
+
+Public methods:
+
+* insert(T value): inserts a value and returns false for duplicates.
+* contains(T value): searches for a value.
+* remove(T value): removes a value, including two-child nodes.
+* inOrder(): returns sorted values in a DynamicArray.
+* size(): returns node count.
+* height(): returns tree levels; an empty tree has height zero.
+
+Null insertion throws IllegalArgumentException. Operations are O(h), where h is
+tree height. NetQueue uses a tree of waiting customer names to reject
+duplicates.
+
+
+2.7 Graph<V>
+-----------
+
+Graph stores weighted adjacency lists and can be directed or undirected.
+Graph() creates an undirected graph; Graph(boolean directed) selects the mode.
+
+Nested records:
+
+* Edge<V>(destination, weight)
+* Path<V>(vertices, distance)
+
+Path.isReachable() returns true when its vertex list is non-empty.
+
+Public methods:
+
+* addVertex(V vertex): adds a non-null vertex if absent.
+* addEdge(V from, V to, double weight): adds a finite, non-negative edge.
+* breadthFirstSearch(V start): returns reachable vertices in BFS order.
+* depthFirstSearch(V start): returns reachable vertices in DFS order.
+* findPathBacktracking(V start, V target): finds one path recursively.
+* shortestPath(V start, V target): uses Dijkstra's algorithm.
+* vertexCount(): returns the number of vertices.
+
+Unknown search vertices return empty results. Invalid edge weights, including
+negative, NaN, or infinite values, throw IllegalArgumentException. BFS and DFS
+are O(V + E); shortestPath uses a linear closest-vertex scan and is
+O(V^2 + E). Backtracking can be exponential in the worst case.
+
+
+3. NetQueue.java
+----------------
+
+NetQueue is the executable Swing application. main:
+
+1. Installs FlatDarkLaf.
+2. Configures component, button, text-field, and scrollbar styling.
+3. Starts the application on Swing's event-dispatch thread.
+
+show() creates the "NetQueue | Control Center" JFrame, builds the window,
+shows it, and starts a 15-second timer for web snapshots.
+
+
+3.1 Application state
+---------------------
+
+NetQueue maintains:
+
+* waitingQueue: FIFO customers awaiting a station.
+* allocationHistory: LIFO allocation history for Undo.
+* activityLog: timestamped local activity messages.
+* stationCatalog: all Station definitions.
+* availableStations: StationSlot objects associated with station cards.
+* terminalIndex: station ID to StationSlot hash table.
+* reservationIndex: customer name to reservation ID hash table.
+* waitingCustomerIndex: BST of names currently waiting.
+* stationNetwork: graph containing CONTROL and station vertices.
+* servedCount and peakLoad: dashboard counters.
+
+The remote API base URL is:
+
+  https://netqueue.jingexz01.space
+
+The bearer token is read from NETQUEUE_PUSH_TOKEN. If the variable is missing,
+local features remain available while web features are disabled.
+
+
+3.2 User interface layout
+-------------------------
+
+buildWindow creates a header, body, and footer.
+
+The header contains branding, operational status, average wait, active count,
+Auto-Allocate Next, and Undo.
+
+The body contains:
+
+* Left rail: New Customer, Waiting queue, and station summary.
+* Center: VIP and Standard Zone Monitor.
+* Right rail: node map, system statistics, and daily statistics.
+
+The footer contains status messages, Reservations, and Logs.
+
+Helper methods panel, card, row, label, button, styleField, separator,
+summaryValue, metric, status, and progress centralize the dark visual style.
+
+
+3.3 Customer entry and queue management
+----------------------------------------
+
+buildNewCustomer creates fields for name and duration plus Standard and VIP
+options. Add to Queue validates:
+
+* Name is not blank or the placeholder.
+* Name is not already in waitingCustomerIndex.
+* Duration is an integer from one minute through 24 hours.
+
+Valid input is converted to seconds, stored in a Customer record, enqueued,
+indexed, logged, and displayed.
+
+refreshWaiting renders a numbered FIFO list and marks the first item NEXT.
+refreshDashboard is called after the list changes.
+
+
+3.4 Stations and initial configuration
+---------------------------------------
+
+The application creates four VIP and eight Standard stations:
+
+VIP-01 Available
+VIP-02 Available
+VIP-03 Maintenance, System Update
+VIP-04 Available
+
+STD-01 Available
+STD-02 Available
+STD-03 Available
+STD-04 Maintenance, Driver Install
+STD-05 Available
+STD-06 Available
+STD-07 Available
+STD-08 Available
+
+stationCard creates a card and StationSlot, adds the station to terminalIndex,
+adds its vertex to stationNetwork, and creates a CONTROL-to-station edge.
+
+Single-clicking an available station selects it and displays route metrics.
+Double-clicking opens station controls.
+
+The node map uses station IDs and colors nodes according to availability,
+maintenance, and occupancy.
+
+
+3.5 Allocation workflows
+------------------------
+
+findAvailableStation scans for the first unoccupied, Available, compatible
+station. Compatibility maps IDs beginning with VIP- to VIP; all others are
+Standard.
+
+allocateNext:
+
+1. Rejects an empty queue.
+2. Peeks at the FIFO head.
+3. Finds a compatible station.
+4. Dequeues and removes the customer name from the BST.
+5. Assigns the customer.
+6. Pushes an Allocation onto allocationHistory.
+7. Updates reservation status, counters, log, and UI.
+
+assignToSelected performs the same operation for a user-selected station but
+also verifies that the station is online and type-compatible.
+
+undoAllocation pops the latest Allocation, clears the station, re-enqueues the
+customer, restores the BST entry, updates reservation status, logs the action,
+and refreshes the UI.
+
+Station menus allow:
+
+* Set Online.
+* Set Maintenance with a selected reason.
+* Remove an active customer to the queue.
+* Transfer an active customer to a compatible available station.
+
+
+3.6 StationSlot sessions
+------------------------
+
+StationSlot connects a Station to its Swing card, status badge, labels, active
+customer, session Timer, and remaining seconds.
+
+assign sets the station to In Use, displays the customer, and starts a
+one-second countdown.
+
+The timer:
+
+* Decrements remainingSeconds every second.
+* Displays remaining time as MM:SS.
+* On completion, marks a linked reservation completed.
+* Clears the station and restores Available state.
+* Logs completion and refreshes the dashboard.
+
+clear and removeCustomer stop timers and restore default station display.
+Session durations are clamped to at least 60 seconds.
+
+
+3.7 Graph interaction
+---------------------
+
+onNodeClicked validates the selected station, selects it, then calculates:
+
+* Dijkstra shortest route from CONTROL.
+* BFS reachable count.
+* DFS traversal count.
+* Backtracking path length.
+
+The results are shown in the footer. Unavailable routes are reported without
+assigning the station.
+
+
+3.8 Reservations
+----------------
+
+showReservationsDialog creates a non-modal reservations window.
+
+loadReservations sends:
+
+  GET /api/bookings/java
+
+using Authorization and Accept headers. Missing tokens, non-200 responses, and
+network failures are shown as explicit unavailable messages.
+
+parseReservations extracts reservation objects and fields id or bookingId,
+displayName, email, zone, startAt, endAt, and status. It uses lightweight
+regular expressions for the expected API response shape.
+
+Reservation actions:
+
+* Add to Queue converts the reservation into a Customer, indexes it, and posts
+  queued status.
+* Assign Now is enabled only during the reservation's start/end interval and
+  assigns a compatible station.
+* Remove sends DELETE /api/bookings/{id}.
+
+updateReservationStatus sends:
+
+  POST /api/bookings/{id}/status
+
+with a JSON status body.
+
+Reservation times support offset date-times and local date-times. Durations are
+clamped between one minute and 24 hours, with a one-hour fallback for invalid
+times.
+
+
+3.9 Web station snapshots
+-------------------------
+
+pushSnapshot publishes station IDs, zones, statuses, details, and queueLength
+to:
+
+  POST /api/stations/update
+
+The expected successful response is HTTP 204. jsonEscape protects backslashes
+and quotes in generated JSON. The heartbeat runs every 15 seconds after the
+main window is shown. Dashboard refreshes also publish snapshots.
+
+
+3.10 Logging and statistics
+---------------------------
+
+log prefixes messages with the local HH:mm:ss time and appends them to the
+activity log. showLogDialog displays the log in a read-only text area.
+
+refreshDashboard counts open, occupied, and maintenance stations. Average wait
+is estimated as three minutes per waiting customer. It updates served count,
+peak load, throughput, and station counters.
+
+refreshSystemStats displays:
+
+* CPU load from OperatingSystemMXBean.
+* Used JVM memory as a percentage of maximum memory.
+* Non-loopback network interfaces that are up versus total.
+
+
+4. QueueModelTest.java
+----------------------
+
+QueueModelTest is a standalone test program. Its main method executes:
+
+* testDynamicArray
+* testLinkedQueue
+* testStack
+* testHashTable
+* testBinarySearchTree
+* testGraphAlgorithms
+
+The test program uses check for assertions and expect for expected exception
+checks. It prints a passed message with the total number of checks.
+
+Coverage includes array growth and shifting, FIFO and LIFO behavior, empty
+structure exceptions, hash-table resizing and updates, BST duplicate handling
+and two-child removal, graph traversal, backtracking, Dijkstra distance,
+unreachable paths, and rejection of negative edge weights.
+
+
+5. ERROR HANDLING AND LIMITATIONS
+----------------------------------
+
+* Invalid model input throws standard Java exceptions.
+* UI validation reports errors in the footer and focuses the invalid field.
+* Reservation failures are shown in the reservation dialog.
+* Web snapshot and status-update failures are printed to standard error.
+* The BST is not self-balancing.
+* Dijkstra uses a linear scan instead of a priority queue.
+* Reservation parsing expects the configured API's simple JSON shape.
+* Average wait is an estimate, not measured elapsed wait time.
+* Application state is held in memory; remote persistence is optional.
+* NETQUEUE_PUSH_TOKEN is read at class initialization.
+
+
+6. MAINTENANCE GUIDANCE
+-----------------------
+
+When changing station IDs, update initial station definitions, node-map IDs,
+VIP/Standard prefix logic, graph construction, and API assumptions.
+
+When changing customer types, update Customer normalization, StationSlot.matches,
+reservation zone conversion, and user-facing validation.
+
+When changing reservation fields, update parsing, queue, assignment, deletion,
+and status-update flows.
+
+Run QueueModelTest after changing any custom data structure or graph algorithm.
+
